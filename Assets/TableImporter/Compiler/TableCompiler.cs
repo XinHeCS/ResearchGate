@@ -1,7 +1,7 @@
-﻿using System.Collections;
+﻿using NPOI.SS.UserModel;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using NPOI.SS.UserModel;
 
 /// <summary>
 /// Class to convert config table to scriptableobject
@@ -14,6 +14,16 @@ public class TableCompiler
     public const string k_StringType = "string";
     public const string k_EnumType = "enum";
 
+    // Placeholder in template
+    public const string k_FIELDNAMES = "#FIELDNAMES#";
+    public const string k_FIELDTYPES = "#FIELDTYPES#";
+    public const string k_ENTITYNAME = "#ENTITYNAME#";
+    public const string k_FIELDS = "#FIELDS#";
+
+    // path to store the table scriptableobjects
+    public const string TableScriptablePath = @"\Asset\ConfigTableData\TableScriptable";
+    public const string TableDataPath = @"\Asset\ConfigTableData\TableData";
+
     private IWorkbook _workbook;
     private List<string> _fieldNames;
     private List<string> _fieldTypes;
@@ -21,6 +31,8 @@ public class TableCompiler
     private bool _isSucess = true;
 
     public List<string> ErrorMessage { get; }
+
+    public string EntityName { get; private set; }
 
     public bool CompileSuccess
     {
@@ -57,11 +69,13 @@ public class TableCompiler
     public TableCompiler(string path)
     {
         _workbook = WorkbookFactory.Create(path);
+        EntityName = "Table_" + Path.GetFileNameWithoutExtension(path);
     }
 
-    public TableCompiler(IWorkbook table)
+    public TableCompiler(IWorkbook table, string tableName)
     {
         _workbook = table;
+        EntityName = "Table_" + Path.GetFileNameWithoutExtension(tableName);
     }
 
     public void Compile()

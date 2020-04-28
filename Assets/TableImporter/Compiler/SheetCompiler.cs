@@ -1,11 +1,21 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using NPOI.SS.UserModel;
+using NPOI.SS.Util;
+using UnityEngine;
 
 public class SheetCompiler
 {
-    private string _script;
+    class EnumDefinition
+    {
+        public string _name;
+        public string[] _values;
+    }
+
+    private List<EnumDefinition> _enumDefs; // For definition of enum field in sheet
     private TableCompiler _tableCompiler;
     private ISheet _sheet;
 
@@ -42,21 +52,17 @@ public class SheetCompiler
     public void Compile()
     {
         ParseSheet();
-        // TODO ...
+        if (_isStop)
+        {
+            return;
+        }
+        GenerateScript();
     }
 
     public void ParseSheet()
     {
         ParseFieldName();
-        if (_isStop)
-        {
-            return;
-        }
         ParseFieldType();
-        if (_isStop)
-        {
-            return;
-        }
     }
 
     private void ParseFieldName()
@@ -127,6 +133,10 @@ public class SheetCompiler
                     return;
                 }
                 fieldTypes.Add(type);
+                if (type == TableCompiler.k_EnumType)
+                {
+                    GetEnumDefinition(i);
+                }
             }
             else if (cell.CellType == CellType.Unknown)
             {
@@ -145,6 +155,124 @@ public class SheetCompiler
             _isStop = true;
             _errMsg = string.Format("Error in compiling sheet {0}: Unmatched field type", _sheet.SheetName);
         }
+    }
+
+    private void GenerateScript()
+    {
+        var templatepath = Path.Combine(new string[] { Directory.GetCurrentDirectory(), "Template" });
+       
+        StringBuilder sb = new StringBuilder();
+        sb.Append(File.ReadAllText(templatepath));
+
+        // Fill Field names in attribute
+        sb.Replace(TableCompiler.k_FIELDNAMES, GetFieldNameInAttr().ToString());
+        // Fill Field types in attribute
+        sb.Replace(TableCompiler.k_FIELDTYPES, GetFieldTypeInAttr().ToString());
+        // Fill Entity names
+        sb.Replace(TableCompiler.k_ENTITYNAME, _tableCompiler.EntityName);
+        // Fill Entity Body
+        sb.Replace(TableCompiler.k_FIELDS, GetEntityBody().ToString());
+        // Fill extra definitions
+        sb.Append(GetExtraScript().ToString());
+
+        // Write to disk
+        File.WriteAllText(
+            Path.Combine(TableCompiler.TableScriptablePath, _tableCompiler.EntityName + ".cs"),
+            sb.ToString()
+            );
+        _isSucess = true;
+    }
+
+    private StringBuilder GetFieldNameInAttr()
+    {
+        StringBuilder fieldNames = new StringBuilder("\"");
+        fieldNames.Append(_tableCompiler.FieldNames[0]);
+        fieldNames.Append("\"");
+        for (int i = 1; i < _tableCompiler.FieldNames.Count; ++i)
+        {
+            fieldNames.Append(", \"");
+            fieldNames.Append(_tableCompiler.FieldNames[i]);
+            fieldNames.Append("\"");
+        }
+
+        return fieldNames;
+    }
+
+    private StringBuilder GetFieldTypeInAttr()
+    {
+        StringBuilder fieldTypes = new StringBuilder("\"");
+        fieldTypes.Append(_tableCompiler.FieldTypes[0]);
+        fieldTypes.Append("\"");
+        for (int i = 1; i < _tableCompiler.FieldTypes.Count; ++i)
+        {
+            fieldTypes.Append(", \"");
+            fieldTypes.Append(_tableCompiler.FieldTypes[i]);
+            fieldTypes.Append("\"");
+        }
+
+        return fieldTypes;
+    }
+
+    private StringBuilder GetEntityBody()
+    {
+        StringBuilder body = new StringBuilder("public ");
+        body.Append(_tableCompiler.FieldTypes[0]);
+        body.Append(" ");
+        body.Append(_tableCompiler.FieldNames[0]);
+        body.Append(";");
+        for (int i = 1; i < _tableCompiler.FieldTypes.Count; ++i)
+        {
+            body.Append("\npublic ");
+            body.Append(_tableCompiler.FieldTypes[i]);
+            body.Append(" ");
+            body.Append(_tableCompiler.FieldNames[i]);
+            body.Append(";");
+        }
+
+        return body;
+    }
+
+    private StringBuilder GetExtraScript()
+    {
+        StringBuilder extra = new StringBuilder();
+        foreach (var enumDef in _enumDefs)
+        {
+            extra.Append(string.Format("\npublic enum {0} {\n\t", enumDef._name));
+            extra.Append(enumDef._values[0]);
+            for (int i = 1; i < enumDef._values.Length; ++i)
+            {
+                extra.Append(",\n\t");
+                extra.Append(enumDef._values[i]);
+            }
+            extra.Append("\n}");
+        }
+        return extra;
+    }
+
+    private void GetEnumDefinition(int col)
+    {
+        var validations = _sheet.GetDataValidations();
+        // Find matched validation of current column
+        foreach (var validation in validations)
+        {
+            CellRangeAddressList addressRange = validation.Regions;
+            foreach (var range in addressRange.CellRangeAddresses)
+            {
+                if (range.FirstColumn <= col && col <= range.LastColumn)
+                {
+                    EnumDefinition def = new EnumDefinition
+                    {
+                        _name = _tableCompiler.FieldNames[col],
+                        _values = validation.ValidationConstraint.ExplicitListValues
+                    };
+                    _enumDefs.Add(def);
+                    return;
+                }
+            }
+        }
+        _isStop = true;
+        _errMsg = string.Format("Error in compiling sheet {0}: Can't find definition of enum {1}",
+            _sheet.SheetName, _tableCompiler.FieldNames[col]);
     }
 
     /// <summary>

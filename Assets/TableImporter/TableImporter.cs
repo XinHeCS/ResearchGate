@@ -52,7 +52,7 @@ public class TableImporter : AssetPostprocessor
             }
             if (cachedEntityInfo == null)
             {
-                
+                cachedEntityInfo = FindTableEntityInfo();
             }
             var entityInfo = cachedEntityInfo.Find(i => i.EntityName.Equals("Table_" + excelName));
             TableCompiler compiler = new TableCompiler(path);
@@ -117,6 +117,13 @@ public class TableImporter : AssetPostprocessor
                 list.Add(info);
             }
         }
+        return list;
+    }
+
+    static List<TableEntityInfo> FindTableEntityInfo()
+    {
+        var list = new List<TableEntityInfo>();
+
         return list;
     }
 
