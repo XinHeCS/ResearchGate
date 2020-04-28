@@ -1,6 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
+using System.Linq;
 using NPOI.SS.UserModel;
 
 /// <summary>
@@ -8,26 +8,19 @@ using NPOI.SS.UserModel;
 /// </summary>
 public class TableCompiler
 {
-    private string _script;
-    private string[] _fieldNames;
-    private string[] _fieldTypes;
-    private List<TableEntityAttribute> _tmpInfo;
+    public const string k_IntType = "int";
+    public const string k_BoolType = "bool";
+    public const string k_FloatType = "float";
+    public const string k_StringType = "string";
+    public const string k_EnumType = "enum";
 
-    // Flag to control whether stop the compiling process
-    private bool _isStop = false;
+    private IWorkbook _workbook;
+    private List<string> _fieldNames;
+    private List<string> _fieldTypes;
     // Flag to indicate whether the compile process success
-    private bool _isSucess = false;
+    private bool _isSucess = true;
 
-    // Error messages of compile process
-    private string _errMsg;
-
-    public string ErrorMessage
-    {
-        get
-        {
-            return _errMsg;
-        }
-    }
+    public List<string> ErrorMessage { get; }
 
     public bool CompileSuccess
     {
@@ -37,52 +30,96 @@ public class TableCompiler
         }
     }
 
-    public void Compile(string path, ref List<TableEntityAttribute> entityInfo)
+    public List<string> FieldNames
     {
-        _tmpInfo = entityInfo;
-
-        IWorkbook workbook = WorkbookFactory.Create(path);
-        for (int i = 0; i < workbook.NumberOfSheets; ++i)
+        get
         {
-            ISheet sheet = workbook.GetSheetAt(i);
-            CompileSheet(sheet);
-            if (_isStop)
-            {
-                break;
-            }
+            return _fieldNames;
+        }
+        set
+        {
+            _fieldNames = value;
         }
     }
 
-    public void CompileSheet(ISheet sheet)
+    public List<string> FieldTypes
     {
-        var excelName = sheet.SheetName;
-        IRow headerRow = sheet.GetRow(0);
-        if (headerRow == null)
+        get
         {
-            _isStop = true;
-            _isSucess = true;
-            return;
+            return _fieldTypes;
         }
-        ParseFieldType(headerRow);
-
+        set
+        {
+            _fieldTypes = value;
+        }
     }
 
-    private void ParseFieldType(IRow headerRow)
+    public TableCompiler(string path)
     {
-        _fieldNames = new string[headerRow.LastCellNum + 1];
-        foreach (var cell in headerRow.Cells)
+        _workbook = WorkbookFactory.Create(path);
+    }
+
+    public TableCompiler(IWorkbook table)
+    {
+        _workbook = table;
+    }
+
+    public void Compile()
+    {
+        for (int i = 0; i < _workbook.NumberOfSheets; ++i)
         {
-            if (cell == null || cell.CellType == CellType.Blank)
-            {
-                _isStop = true;
-                _errMsg = string.Format("Error in {0} : {1}: Blamk header is not allowed",
-                    cell.RowIndex, cell.ColumnIndex);
-                return;
-            }
-            if (cell.CellType == CellType.String)
-            {
-                _fieldNames[cell.ColumnIndex] = cell.StringCellValue.Trim();
-            }
+            // Continue to compile event if some sheet has compile errors
+            CompileSheet(i);
+        }
+    }
+
+    public bool NeedCompile(TableImporter.TableEntityInfo entityInfo)
+    {
+        if (entityInfo == null)
+        {
+            return true;
+        }
+        
+        SheetCompiler sheetCompiler = new SheetCompiler(_workbook.GetSheetAt(0), this);
+        sheetCompiler.ParseSheet();
+        RecordCompileResult(sheetCompiler);
+        return _fieldNames.SequenceEqual(entityInfo.Attribute.FieldNames) &&
+            _fieldTypes.SequenceEqual(entityInfo.Attribute.FieldTypes);
+    }
+
+    public bool HasType(string type)
+    {
+        switch (type)
+        {
+            case k_IntType:
+                return true;
+            case k_BoolType:
+                return true;
+            case k_FloatType:
+                return true;
+            case k_StringType:
+                return true;
+            case k_EnumType:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void CompileSheet(int sheetIdx)
+    {
+        ISheet sheet = _workbook.GetSheetAt(sheetIdx);
+        SheetCompiler sheetCompiler = new SheetCompiler(sheet, this);
+        sheetCompiler.Compile();
+        RecordCompileResult(sheetCompiler);
+    }
+
+    private void RecordCompileResult(SheetCompiler sheetCompiler)
+    {
+        _isSucess &= sheetCompiler.CompileSuccess;
+        if (!_isSucess)
+        {
+            ErrorMessage.Add(sheetCompiler.ErrorMessage);
         }
     }
 }

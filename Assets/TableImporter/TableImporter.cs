@@ -11,7 +11,7 @@ using NPOI.SS.UserModel;
 
 public class TableImporter : AssetPostprocessor
 {
-    class TableAssetInfo
+    public class TableAssetInfo
     {
         public Type AssetType { get; set; }
         public TableAssetAttribute Attribute { get; set; }
@@ -24,7 +24,7 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    class TableEntityInfo
+    public class TableEntityInfo
     {
         public Type EntityType { get; set; }
         public TableEntityAttribute Attribute { get; set; }
@@ -38,7 +38,7 @@ public class TableImporter : AssetPostprocessor
     }
 
     static List<TableAssetInfo> cachedInfos = null; 
-    static List<TableEntityAttribute> cachedEntityInfo = null; //  Clear on compile.
+    static List<TableEntityInfo> cachedEntityInfo = null; //  Clear on compile.
 
     void OnPreprocessAsset()
     {
@@ -52,40 +52,52 @@ public class TableImporter : AssetPostprocessor
             }
             if (cachedEntityInfo == null)
             {
-                cachedEntityInfo = new List<TableEntityAttribute>();
+                
             }
-            TableCompiler compiler = new TableCompiler();
-            compiler.Compile(path, ref cachedEntityInfo);
-        }
-    }
-
-    static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
-    {
-        bool imported = false;
-        foreach (string path in importedAssets)
-        {
-            if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
+            var entityInfo = cachedEntityInfo.Find(i => i.EntityName.Equals("Table_" + excelName));
+            TableCompiler compiler = new TableCompiler(path);
+            if (compiler.NeedCompile(entityInfo))
             {
-                if (cachedInfos == null) cachedInfos = FindExcelAssetInfos();
-
-                var excelName = Path.GetFileNameWithoutExtension(path);
-                if (excelName.StartsWith("~$")) continue;
-
-                TableAssetInfo info = cachedInfos.Find(i => i.TableName == excelName);
-
-                if (info == null) continue;
-
-                ImportExcel(path, info);
-                imported = true;
+                compiler.Compile();
+                if (!compiler.CompileSuccess)
+                {
+                    foreach (var msg in compiler.ErrorMessage)
+                    {
+                        Debug.LogError(msg);
+                    }
+                    return;
+                }
             }
         }
-
-        if (imported)
-        {
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-        }
     }
+
+    //static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
+    //{
+    //    bool imported = false;
+    //    foreach (string path in importedAssets)
+    //    {
+    //        if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
+    //        {
+    //            if (cachedInfos == null) cachedInfos = FindExcelAssetInfos();
+
+    //            var excelName = Path.GetFileNameWithoutExtension(path);
+    //            if (excelName.StartsWith("~$")) continue;
+
+    //            TableAssetInfo info = cachedInfos.Find(i => i.TableName == excelName);
+
+    //            if (info == null) continue;
+
+    //            ImportExcel(path, info);
+    //            imported = true;
+    //        }
+    //    }
+
+    //    if (imported)
+    //    {
+    //        AssetDatabase.SaveAssets();
+    //        AssetDatabase.Refresh();
+    //    }
+    //}
 
     static List<TableAssetInfo> FindExcelAssetInfos()
     {
