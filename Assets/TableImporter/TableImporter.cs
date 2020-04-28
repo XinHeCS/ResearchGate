@@ -37,7 +37,7 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    static List<TableAssetInfo> cachedInfos = null; 
+    //static List<TableAssetInfo> cachedInfos = null; 
     static List<TableEntityInfo> cachedEntityInfo = null; //  Clear on compile.
 
     void OnPreprocessAsset()
@@ -123,6 +123,26 @@ public class TableImporter : AssetPostprocessor
     static List<TableEntityInfo> FindTableEntityInfo()
     {
         var list = new List<TableEntityInfo>();
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var asmName = assembly.GetName();
+            if (asmName.Name == "ConfigTableAssembly")
+            {
+                foreach (var type in assembly.GetTypes())
+                {
+                    var attributes = type.GetCustomAttributes<TableEntityAttribute>(false);
+                    foreach (var attr in attributes)
+                    {
+                        var entityInfo = new TableEntityInfo
+                        {
+                            EntityType = type,
+                            Attribute = attr
+                        };
+                        cachedEntityInfo.Add(entityInfo);
+                    }
+                }
+            }
+        }
 
         return list;
     }

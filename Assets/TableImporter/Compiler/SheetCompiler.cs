@@ -159,7 +159,11 @@ public class SheetCompiler
 
     private void GenerateScript()
     {
-        var templatepath = Path.Combine(new string[] { Directory.GetCurrentDirectory(), "Template" });
+        var templatepath = Path.Combine(
+            new string[] 
+            {
+                Directory.GetCurrentDirectory(), @"TableImporter\Template\ExcelAssetEntityTemplete.cs.txt"
+            });
        
         StringBuilder sb = new StringBuilder();
         sb.Append(File.ReadAllText(templatepath));
@@ -251,6 +255,11 @@ public class SheetCompiler
 
     private void GetEnumDefinition(int col)
     {
+        if (_enumDefs == null)
+        {
+            _enumDefs = new List<EnumDefinition>();
+        }
+
         var validations = _sheet.GetDataValidations();
         // Find matched validation of current column
         foreach (var validation in validations)
