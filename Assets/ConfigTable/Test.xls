@@ -1,0 +1,12 @@
+id	name	price	isTest	rate	color			green	red	blue
+int	string	float	bool	float	enum					
+1	pig	1.20 	0	2.76	green			rate factor		
+2	apple	3.40 	1	7.82	red			2.3		
+3	dog	5.30 	1	12.19	blue					
+4	banana	7.30 	0	16.79	green					
+5	pen	1.50 	0	3.45	green					
+6	pear	5.09 	1	11.707	blue					
+7	chair	5.54 	1	12.742	red					
+8	cup	5.99 	0	13.777	blue					
+9	hat	6.44 	0	14.812	blue					
+10	mouse	5.70 	0	13.11	red					
