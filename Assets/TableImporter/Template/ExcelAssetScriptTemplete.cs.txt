@@ -2,7 +2,6 @@
 using System.Collections;
 using System.Collections.Generic;
 
-[ExcelAsset]
 public class #ASSETSCRIPTNAME# : ScriptableObject
 {
 #ENTITYFIELDS#

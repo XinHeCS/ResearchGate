@@ -8,22 +8,6 @@ using System.Linq;
 /// </summary>
 public class TableCompiler
 {
-    public const string k_IntType = "int";
-    public const string k_BoolType = "bool";
-    public const string k_FloatType = "float";
-    public const string k_StringType = "string";
-    public const string k_EnumType = "enum";
-
-    // Placeholder in template
-    public const string k_FIELDNAMES = "#FIELDNAMES#";
-    public const string k_FIELDTYPES = "#FIELDTYPES#";
-    public const string k_ENTITYNAME = "#ENTITYNAME#";
-    public const string k_FIELDS = "#FIELDS#";
-
-    // path to store the table scriptableobjects
-    public const string TableScriptablePath = @"\Asset\ConfigTableData\TableScriptable";
-    public const string TableDataPath = @"\Asset\ConfigTableData\TableData";
-
     private IWorkbook _workbook;
     private List<string> _fieldNames;
     private List<string> _fieldTypes;
@@ -68,14 +52,16 @@ public class TableCompiler
 
     public TableCompiler(string path)
     {
-        _workbook = WorkbookFactory.Create(path);
-        EntityName = "Table_" + Path.GetFileNameWithoutExtension(path);
+        LoadWorkBook(path);
+        EntityName = Config.EntityPrefix + Path.GetFileNameWithoutExtension(path);
+        ErrorMessage = new List<string>();
     }
 
     public TableCompiler(IWorkbook table, string tableName)
     {
         _workbook = table;
-        EntityName = "Table_" + Path.GetFileNameWithoutExtension(tableName);
+        EntityName = Config.EntityPrefix + Path.GetFileNameWithoutExtension(tableName);
+        ErrorMessage = new List<string>();
     }
 
     public void Compile()
@@ -97,28 +83,18 @@ public class TableCompiler
         SheetCompiler sheetCompiler = new SheetCompiler(_workbook.GetSheetAt(0), this);
         sheetCompiler.ParseSheet();
         RecordCompileResult(sheetCompiler);
-        return _fieldNames.SequenceEqual(entityInfo.Attribute.FieldNames) &&
-            _fieldTypes.SequenceEqual(entityInfo.Attribute.FieldTypes);
+        return !_fieldNames.SequenceEqual(entityInfo.Attribute.FieldNames) ||
+            !_fieldTypes.SequenceEqual(entityInfo.Attribute.FieldTypes);
     }
 
-    public bool HasType(string type)
+    private void LoadWorkBook(string path)
     {
-        switch (type)
+        using (FileStream fileStream = 
+            File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
-            case k_IntType:
-                return true;
-            case k_BoolType:
-                return true;
-            case k_FloatType:
-                return true;
-            case k_StringType:
-                return true;
-            case k_EnumType:
-                return true;
-            default:
-                return false;
+            _workbook = WorkbookFactory.Create(fileStream);
         }
-    }
+    }   
 
     private void CompileSheet(int sheetIdx)
     {

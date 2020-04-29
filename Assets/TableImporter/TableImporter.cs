@@ -37,67 +37,121 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    //static List<TableAssetInfo> cachedInfos = null; 
+    static List<TableAssetInfo> cachedInfos = null;
     static List<TableEntityInfo> cachedEntityInfo = null; //  Clear on compile.
 
-    void OnPreprocessAsset()
+    //void OnPreprocessAsset()
+    //{
+    //    var path = assetImporter.assetPath;
+    //    if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
+    //    {
+    //        var excelName = Path.GetFileNameWithoutExtension(path);
+    //        if (excelName.StartsWith("~$"))
+    //        {
+    //            return;
+    //        }
+    //        if (cachedEntityInfo == null)
+    //        {
+    //            cachedEntityInfo = FindTableEntityInfo();
+    //        }
+    //        var entityInfo = cachedEntityInfo.Find(
+    //            i => i.EntityName.Equals(Config.EntityPrefix + excelName)
+    //            );
+    //        TableCompiler compiler = new TableCompiler(path);
+    //        if (compiler.NeedCompile(entityInfo))
+    //        {
+    //            compiler.Compile();
+    //            if (!compiler.CompileSuccess)
+    //            {
+    //                foreach (var msg in compiler.ErrorMessage)
+    //                {
+    //                    Debug.LogError(msg);
+    //                }
+    //                return;
+    //            }
+    //            Debug.Log(string.Format("Cmopiled table {0}", excelName));
+    //        }
+    //    }
+    //}
+
+    static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
     {
-        var path = assetImporter.assetPath;
-        if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
+        HandleImportFile(importedAssets);
+        HandleDeletedFile(deletedAssets);
+    }
+
+    static void HandleImportFile(string[] importedAssets)
+    {
+        bool imported = false;
+        foreach (string path in importedAssets)
         {
-            var excelName = Path.GetFileNameWithoutExtension(path);
-            if (excelName.StartsWith("~$"))
+            if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
             {
-                return;
+                if (cachedInfos == null) cachedInfos = FindExcelAssetInfos();
+
+                var excelName = Path.GetFileNameWithoutExtension(path);
+                if (excelName.StartsWith("~$")) continue;
+
+                CompileTable(path);
+
+                TableAssetInfo info = cachedInfos.Find(i => i.TableName == excelName);
+
+                if (info == null) continue;
+
+                //ImportExcel(path, info);
+                imported = true;
             }
-            if (cachedEntityInfo == null)
+        }
+
+        if (imported)
+        {
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+        }
+    }
+
+    static void HandleDeletedFile(string[] deletedAssets)
+    {
+        foreach (string path in deletedAssets)
+        {
+            if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
             {
-                cachedEntityInfo = FindTableEntityInfo();
-            }
-            var entityInfo = cachedEntityInfo.Find(i => i.EntityName.Equals("Table_" + excelName));
-            TableCompiler compiler = new TableCompiler(path);
-            if (compiler.NeedCompile(entityInfo))
-            {
-                compiler.Compile();
-                if (!compiler.CompileSuccess)
+                var excelName = Path.GetFileNameWithoutExtension(path);
+                if (excelName.StartsWith("~$"))
                 {
-                    foreach (var msg in compiler.ErrorMessage)
-                    {
-                        Debug.LogError(msg);
-                    }
-                    return;
+                    FileUtil.DeleteFileOrDirectory(path + ".meta");
+                    AssetDatabase.Refresh();
                 }
             }
         }
     }
 
-    //static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
-    //{
-    //    bool imported = false;
-    //    foreach (string path in importedAssets)
-    //    {
-    //        if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
-    //        {
-    //            if (cachedInfos == null) cachedInfos = FindExcelAssetInfos();
+    static void CompileTable(string path)
+    {
+        var excelName = Path.GetFileNameWithoutExtension(path);
 
-    //            var excelName = Path.GetFileNameWithoutExtension(path);
-    //            if (excelName.StartsWith("~$")) continue;
-
-    //            TableAssetInfo info = cachedInfos.Find(i => i.TableName == excelName);
-
-    //            if (info == null) continue;
-
-    //            ImportExcel(path, info);
-    //            imported = true;
-    //        }
-    //    }
-
-    //    if (imported)
-    //    {
-    //        AssetDatabase.SaveAssets();
-    //        AssetDatabase.Refresh();
-    //    }
-    //}
+        if (cachedEntityInfo == null)
+        {
+            cachedEntityInfo = FindTableEntityInfo();
+        }
+        var entityInfo = cachedEntityInfo.Find(
+            i => i.EntityName.Equals(Config.EntityPrefix + excelName)
+            );
+        TableCompiler compiler = new TableCompiler(path);
+        if (compiler.NeedCompile(entityInfo))
+        {
+            compiler.Compile();
+            if (!compiler.CompileSuccess)
+            {
+                foreach (var msg in compiler.ErrorMessage)
+                {
+                    Debug.LogError(msg);
+                }
+                return;
+            }
+            Debug.Log(string.Format("Cmopiled table {0}", excelName));
+        }
+    }
 
     static List<TableAssetInfo> FindExcelAssetInfos()
     {
@@ -138,7 +192,7 @@ public class TableImporter : AssetPostprocessor
                             EntityType = type,
                             Attribute = attr
                         };
-                        cachedEntityInfo.Add(entityInfo);
+                        list.Add(entityInfo);
                     }
                 }
             }

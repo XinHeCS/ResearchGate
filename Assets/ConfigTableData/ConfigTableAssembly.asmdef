@@ -1,6 +1,8 @@
 {
     "name": "ConfigTableAssembly",
-    "references": [],
+    "references": [
+        "TableImporterAssembly"
+    ],
     "optionalUnityReferences": [],
     "includePlatforms": [],
     "excludePlatforms": [],

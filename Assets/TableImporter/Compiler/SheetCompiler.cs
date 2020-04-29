@@ -4,25 +4,23 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using NPOI.SS.UserModel;
-using NPOI.SS.Util;
-using UnityEngine;
 
 public class SheetCompiler
 {
-    class EnumDefinition
+    class EnumType
     {
         public string _name;
         public string[] _values;
     }
 
-    private List<EnumDefinition> _enumDefs; // For definition of enum field in sheet
+    private List<EnumType> _enumTypes; // For definition of enum field in sheet
     private TableCompiler _tableCompiler;
     private ISheet _sheet;
 
     // Flag to control whether stop the compiling process
     private bool _isStop = false;
     // Flag to indicate whether the compile process success
-    private bool _isSucess = false;
+    private bool _isSucess = true;
 
     // Error messages of compile process
     private string _errMsg;
@@ -88,9 +86,8 @@ public class SheetCompiler
             }
             else if (cell.CellType == CellType.Unknown)
             {
-                _isStop = true;
-                _errMsg = string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unknown header is not allowed",
-                    _sheet.SheetName, cell.RowIndex, i);
+                StopCompile(string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unknown header is not allowed",
+                    _sheet.SheetName, cell.RowIndex, i));
                 return;
             }
         }
@@ -100,8 +97,7 @@ public class SheetCompiler
         }
         else if (!CheckHeader(fieldNames))
         {
-            _isStop = true;
-            _errMsg = string.Format("Error in compiling sheet {0}: Unmatched header fields", _sheet.SheetName);
+            StopCompile(string.Format("Error in compiling sheet {0}: Unmatched header fields", _sheet.SheetName));
         }
     }
 
@@ -111,8 +107,8 @@ public class SheetCompiler
         IRow typeRow = _sheet.GetRow(1);
         if (typeRow == null)
         {
-            _isStop = true;
-            _isSucess = true;
+            StopCompile(
+                string.Format("Error in compiling sheet {0}: Missing type definitoins.", _sheet.SheetName));
             return;
         }
         for (int i = 0; i <= typeRow.LastCellNum; ++i)
@@ -124,25 +120,31 @@ public class SheetCompiler
             }
             else if (cell.CellType == CellType.String)
             {
-                var type = cell.StringCellValue.Trim().ToLower();
-                if (!_tableCompiler.HasType(type))
+                var rawTypeInfo = cell.StringCellValue.Replace(" ", "").ToLower();
+                var defInfo = rawTypeInfo.Split('|');
+                var type = defInfo[0];
+                if (!TableDataType.HasType(type))
                 {
-                    _isStop = true;
-                    _errMsg = string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unsuportted type {3}",
-                        _sheet.SheetName, cell.RowIndex, i, type);
+                    StopCompile(string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unsuportted type {3}",
+                        _sheet.SheetName, cell.RowIndex, i, type));
                     return;
                 }
-                fieldTypes.Add(type);
-                if (type == TableCompiler.k_EnumType)
+                if (type == TableDataType.k_EnumType)
                 {
-                    GetEnumDefinition(i);
+                    if (defInfo.Length < 2)
+                    {
+                        StopCompile(
+                            string.Format("Error in compiling sheet {0}: Definition of enum type {1} is missing", _sheet.SheetName, type));
+                    }
+                    type += "_" + _tableCompiler.FieldNames[i];
+                    GetEnumDefinition(type, defInfo[1]);
                 }
+                fieldTypes.Add(type);
             }
             else if (cell.CellType == CellType.Unknown)
             {
-                _isStop = true;
-                _errMsg = string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unknown field is not allowed",
-                    _sheet.SheetName, cell.RowIndex, i);
+                StopCompile(string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unknown field is not allowed",
+                    _sheet.SheetName, cell.RowIndex, i));
                 return;
             }
         }
@@ -152,8 +154,7 @@ public class SheetCompiler
         }
         else if (!CheckTypes(fieldTypes))
         {
-            _isStop = true;
-            _errMsg = string.Format("Error in compiling sheet {0}: Unmatched field type", _sheet.SheetName);
+            StopCompile(string.Format("Error in compiling sheet {0}: Unmatched field type", _sheet.SheetName));
         }
     }
 
@@ -162,29 +163,33 @@ public class SheetCompiler
         var templatepath = Path.Combine(
             new string[] 
             {
-                Directory.GetCurrentDirectory(), @"TableImporter\Template\ExcelAssetEntityTemplete.cs.txt"
+                Directory.GetCurrentDirectory(),
+                Config.EntityTemplatePath
             });
        
         StringBuilder sb = new StringBuilder();
         sb.Append(File.ReadAllText(templatepath));
 
         // Fill Field names in attribute
-        sb.Replace(TableCompiler.k_FIELDNAMES, GetFieldNameInAttr().ToString());
+        sb.Replace(TemplateSymbol.k_FIELDNAMES, GetFieldNameInAttr().ToString());
         // Fill Field types in attribute
-        sb.Replace(TableCompiler.k_FIELDTYPES, GetFieldTypeInAttr().ToString());
+        sb.Replace(TemplateSymbol.k_FIELDTYPES, GetFieldTypeInAttr().ToString());
         // Fill Entity names
-        sb.Replace(TableCompiler.k_ENTITYNAME, _tableCompiler.EntityName);
+        sb.Replace(TemplateSymbol.k_ENTITYNAME, _tableCompiler.EntityName);
         // Fill Entity Body
-        sb.Replace(TableCompiler.k_FIELDS, GetEntityBody().ToString());
+        sb.Replace(TemplateSymbol.k_FIELDS, GetEntityBody().ToString());
         // Fill extra definitions
-        sb.Append(GetExtraScript().ToString());
+        sb.Replace(TemplateSymbol.k_ENUMDEF, GetEnumScript().ToString());
 
+        var path = Path.Combine(
+            new string[]
+            {
+                Directory.GetCurrentDirectory(),
+                Config.TableEntityPath,
+                _tableCompiler.EntityName + ".cs"
+            });
         // Write to disk
-        File.WriteAllText(
-            Path.Combine(TableCompiler.TableScriptablePath, _tableCompiler.EntityName + ".cs"),
-            sb.ToString()
-            );
-        _isSucess = true;
+        File.WriteAllText(path, sb.ToString());
     }
 
     private StringBuilder GetFieldNameInAttr()
@@ -219,14 +224,17 @@ public class SheetCompiler
 
     private StringBuilder GetEntityBody()
     {
-        StringBuilder body = new StringBuilder("public ");
-        body.Append(_tableCompiler.FieldTypes[0]);
-        body.Append(" ");
-        body.Append(_tableCompiler.FieldNames[0]);
-        body.Append(";");
-        for (int i = 1; i < _tableCompiler.FieldTypes.Count; ++i)
+        StringBuilder body = new StringBuilder();
+        for (int i = 0; i < _tableCompiler.FieldTypes.Count; ++i)
         {
-            body.Append("\npublic ");
+            if (i == 0)
+            {
+                body.Append("\tpublic ");
+            }
+            else
+            {
+                body.Append("\n\tpublic ");
+            }
             body.Append(_tableCompiler.FieldTypes[i]);
             body.Append(" ");
             body.Append(_tableCompiler.FieldNames[i]);
@@ -236,52 +244,51 @@ public class SheetCompiler
         return body;
     }
 
-    private StringBuilder GetExtraScript()
+    private StringBuilder GetEnumScript()
     {
-        StringBuilder extra = new StringBuilder();
-        foreach (var enumDef in _enumDefs)
+        StringBuilder enumScript = new StringBuilder();
+        foreach (var enumDef in _enumTypes)
         {
-            extra.Append(string.Format("\npublic enum {0} {\n\t", enumDef._name));
-            extra.Append(enumDef._values[0]);
+            enumScript.Append(string.Format("\n\tpublic enum {0} {{\n\t\t", enumDef._name));
+            enumScript.Append(enumDef._values[0]);
             for (int i = 1; i < enumDef._values.Length; ++i)
             {
-                extra.Append(",\n\t");
-                extra.Append(enumDef._values[i]);
+                enumScript.Append(",\n\t\t");
+                enumScript.Append(enumDef._values[i]);
             }
-            extra.Append("\n}");
+            enumScript.Append("\n\t}");
         }
-        return extra;
+        return enumScript;
     }
 
-    private void GetEnumDefinition(int col)
+    private EnumType GetEnumDefinition(string enumName, string enumDef)
     {
-        if (_enumDefs == null)
+        if (_enumTypes == null)
         {
-            _enumDefs = new List<EnumDefinition>();
+            _enumTypes = new List<EnumType>();
         }
 
-        var validations = _sheet.GetDataValidations();
-        // Find matched validation of current column
-        foreach (var validation in validations)
+        EnumType enumType = new EnumType
         {
-            CellRangeAddressList addressRange = validation.Regions;
-            foreach (var range in addressRange.CellRangeAddresses)
-            {
-                if (range.FirstColumn <= col && col <= range.LastColumn)
-                {
-                    EnumDefinition def = new EnumDefinition
-                    {
-                        _name = _tableCompiler.FieldNames[col],
-                        _values = validation.ValidationConstraint.ExplicitListValues
-                    };
-                    _enumDefs.Add(def);
-                    return;
-                }
-            }
+            _name = enumName,
+            _values = enumDef.Split(',')
+        };
+
+        if (enumType._values.Length < 2)
+        {
+            StopCompile(string.Format("Error in compiling sheet {0}: ill-formed enum {1}",
+                _sheet.SheetName, enumName));
+            return null;
         }
+        _enumTypes.Add(enumType);
+        return enumType;
+    }
+
+    private void StopCompile(string errMsg)
+    {
         _isStop = true;
-        _errMsg = string.Format("Error in compiling sheet {0}: Can't find definition of enum {1}",
-            _sheet.SheetName, _tableCompiler.FieldNames[col]);
+        _isSucess = false;
+        _errMsg = errMsg;
     }
 
     /// <summary>
