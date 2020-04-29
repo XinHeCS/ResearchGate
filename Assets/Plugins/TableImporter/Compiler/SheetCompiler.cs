@@ -7,13 +7,14 @@ using NPOI.SS.UserModel;
 
 public class SheetCompiler
 {
-    class EnumType
+    class TypeDescription
     {
-        public string _name;
-        public string[] _values;
+        public string _typeName; // Type name
+        public string _fieldName;
+        public string[] _values; // Value domain for special type (e.g. enum)
     }
 
-    private List<EnumType> _enumTypes; // For definition of enum field in sheet
+    private List<TypeDescription> _typeDescriptions; // For definition of enum field in sheet
     private TableCompiler _tableCompiler;
     private ISheet _sheet;
 
@@ -82,7 +83,7 @@ public class SheetCompiler
             }
             else if (cell.CellType == CellType.String)
             {
-                fieldNames.Add(cell.StringCellValue.Trim().ToLower());
+                fieldNames.Add(cell.StringCellValue.Trim());
             }
             else if (cell.CellType == CellType.Unknown)
             {
@@ -129,17 +130,12 @@ public class SheetCompiler
                         _sheet.SheetName, cell.RowIndex, i, type));
                     return;
                 }
-                if (type == TableDataType.k_EnumType)
+                if (type == TableDataType.k_EnumType) // Enum type name needs to handle particulaly
                 {
-                    if (defInfo.Length < 2)
-                    {
-                        StopCompile(
-                            string.Format("Error in compiling sheet {0}: Definition of enum type {1} is missing", _sheet.SheetName, type));
-                    }
                     type += "_" + _tableCompiler.FieldNames[i];
-                    GetEnumDefinition(type, defInfo[1]);
                 }
-                fieldTypes.Add(type);
+                ParseTypeInfo(type, _tableCompiler.FieldNames[i], defInfo);
+                fieldTypes.Add(rawTypeInfo);
             }
             else if (cell.CellType == CellType.Unknown)
             {
@@ -159,17 +155,11 @@ public class SheetCompiler
     }
 
     private void GenerateScript()
-    {
-        var templatepath = Path.Combine(
-            new string[] 
-            {
-                Directory.GetCurrentDirectory(),
-                Config.EntityTemplatePath
-            });
-       
+    {     
         StringBuilder sb = new StringBuilder();
-        sb.Append(File.ReadAllText(templatepath));
+        sb.Append(File.ReadAllText(Config.ScriptableTemplatePath));
 
+        // Fill Entity content in template
         // Fill Field names in attribute
         sb.Replace(TemplateSymbol.k_FIELDNAMES, GetFieldNameInAttr().ToString());
         // Fill Field types in attribute
@@ -181,14 +171,21 @@ public class SheetCompiler
         // Fill extra definitions
         sb.Replace(TemplateSymbol.k_ENUMDEF, GetEnumScript().ToString());
 
-        var path = Path.Combine(
-            new string[]
-            {
-                Directory.GetCurrentDirectory(),
-                Config.TableEntityPath,
-                _tableCompiler.EntityName + ".cs"
-            });
+        // Fill table content in template
+        var excelName = _tableCompiler.EntityName.Replace(Config.EntityPrefix, "");
+        var assetName = _tableCompiler.EntityName.Replace(Config.EntityPrefix, Config.ScriptablePrefix);
+        sb.Replace(TemplateSymbol.k_EXCELNAME, excelName);
+        sb.Replace(TemplateSymbol.k_ASSETSCRIPTNAME, assetName);
+
         // Write to disk
+        if (!Directory.Exists(Config.TableScriptablePath))
+        {
+            Directory.CreateDirectory(Config.TableScriptablePath);
+        }
+        var path = Path.Combine(
+            Config.TableScriptablePath,
+            assetName + ".cs"
+            );
         File.WriteAllText(path, sb.ToString());
     }
 
@@ -225,7 +222,8 @@ public class SheetCompiler
     private StringBuilder GetEntityBody()
     {
         StringBuilder body = new StringBuilder();
-        for (int i = 0; i < _tableCompiler.FieldTypes.Count; ++i)
+
+        for (int i = 0; i < _typeDescriptions.Count; ++i)
         {
             if (i == 0)
             {
@@ -235,9 +233,9 @@ public class SheetCompiler
             {
                 body.Append("\n\tpublic ");
             }
-            body.Append(_tableCompiler.FieldTypes[i]);
+            body.Append(_typeDescriptions[i]._typeName);
             body.Append(" ");
-            body.Append(_tableCompiler.FieldNames[i]);
+            body.Append(_typeDescriptions[i]._fieldName);
             body.Append(";");
         }
 
@@ -247,40 +245,51 @@ public class SheetCompiler
     private StringBuilder GetEnumScript()
     {
         StringBuilder enumScript = new StringBuilder();
-        foreach (var enumDef in _enumTypes)
+        foreach (var typeInfo in _typeDescriptions)
         {
-            enumScript.Append(string.Format("\n\tpublic enum {0} {{\n\t\t", enumDef._name));
-            enumScript.Append(enumDef._values[0]);
-            for (int i = 1; i < enumDef._values.Length; ++i)
+            if (typeInfo._values != null) // Need to improve to be compatible with futrue special type
             {
-                enumScript.Append(",\n\t\t");
-                enumScript.Append(enumDef._values[i]);
+                enumScript.Append(string.Format("\n\tpublic enum {0} {{\n\t\t", typeInfo._typeName));
+                enumScript.Append(typeInfo._values[0]);
+                for (int i = 1; i < typeInfo._values.Length; ++i)
+                {
+                    enumScript.Append(",\n\t\t");
+                    enumScript.Append(typeInfo._values[i]);
+                }
+                enumScript.Append("\n\t}");
             }
-            enumScript.Append("\n\t}");
         }
         return enumScript;
     }
 
-    private EnumType GetEnumDefinition(string enumName, string enumDef)
+    /// <summary>
+    /// Parse type to get the description of type
+    /// </summary>
+    /// <param name="typeName">Modified type name</param>
+    /// <param name="fieldName">Filed name</param>
+    /// <param name="typeInfo">Contians the original type name and values for special type</param>
+    /// <returns>Desription data of type</returns>
+    private TypeDescription ParseTypeInfo(string typeName, string fieldName, string[] typeInfo)
     {
-        if (_enumTypes == null)
+        if (_typeDescriptions == null)
         {
-            _enumTypes = new List<EnumType>();
+            _typeDescriptions = new List<TypeDescription>();
         }
 
-        EnumType enumType = new EnumType
+        TypeDescription enumType = new TypeDescription
         {
-            _name = enumName,
-            _values = enumDef.Split(',')
+            _typeName = typeName,
+            _fieldName = fieldName,
+            _values = typeInfo.Length >= 2 ? typeInfo[1].Split(',') : null
         };
 
-        if (enumType._values.Length < 2)
+        if (typeInfo[0] == TableDataType.k_EnumType && enumType._values == null)
         {
             StopCompile(string.Format("Error in compiling sheet {0}: ill-formed enum {1}",
-                _sheet.SheetName, enumName));
+                _sheet.SheetName, typeName));
             return null;
         }
-        _enumTypes.Add(enumType);
+        _typeDescriptions.Add(enumType);
         return enumType;
     }
 

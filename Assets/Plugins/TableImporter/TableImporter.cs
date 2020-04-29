@@ -8,6 +8,8 @@ using System.Reflection;
 using NPOI.HSSF.UserModel;
 using NPOI.XSSF.UserModel;
 using NPOI.SS.UserModel;
+using System.Text;
+using UnityEditor.Compilation;
 
 public class TableImporter : AssetPostprocessor
 {
@@ -87,13 +89,18 @@ public class TableImporter : AssetPostprocessor
         {
             if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
             {
-                if (cachedInfos == null) cachedInfos = FindExcelAssetInfos();
-
                 var excelName = Path.GetFileNameWithoutExtension(path);
                 if (excelName.StartsWith("~$")) continue;
 
-                CompileTable(path);
+                var entityInfo = CompileTable(path);
+                if (entityInfo == null)
+                {
+                    continue;
+                }
 
+                CompilationPipeline.assemblyCompilationFinished += OnScriptsFinishCompiled;
+
+                if (cachedInfos == null) cachedInfos = FindTableAssetInfos();
                 TableAssetInfo info = cachedInfos.Find(i => i.TableName == excelName);
 
                 if (info == null) continue;
@@ -108,6 +115,11 @@ public class TableImporter : AssetPostprocessor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
         }
+    }
+
+    static void OnScriptsFinishCompiled(string assemblyPath, CompilerMessage[] msg)
+    {
+        Debug.Log(assemblyPath);
     }
 
     static void HandleDeletedFile(string[] deletedAssets)
@@ -126,7 +138,7 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    static void CompileTable(string path)
+    static TableEntityInfo CompileTable(string path)
     {
         var excelName = Path.GetFileNameWithoutExtension(path);
 
@@ -147,28 +159,33 @@ public class TableImporter : AssetPostprocessor
                 {
                     Debug.LogError(msg);
                 }
-                return;
+                return null;
             }
             Debug.Log(string.Format("Cmopiled table {0}", excelName));
         }
+        return entityInfo;
     }
 
-    static List<TableAssetInfo> FindExcelAssetInfos()
+    static List<TableAssetInfo> FindTableAssetInfos()
     {
         var list = new List<TableAssetInfo>();
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
-            foreach (var type in assembly.GetTypes())
+            var asmName = assembly.GetName();
+            if (string.IsNullOrEmpty(Config.TableAssemblyName) || asmName.Name == Config.TableAssemblyName)
             {
-                var attributes = type.GetCustomAttributes(typeof(TableAssetAttribute), false);
-                if (attributes.Length == 0) continue;
-                var attribute = (TableAssetAttribute)attributes[0];
-                var info = new TableAssetInfo()
+                foreach (var type in assembly.GetTypes())
                 {
-                    AssetType = type,
-                    Attribute = attribute
-                };
-                list.Add(info);
+                    var attributes = type.GetCustomAttributes(typeof(TableAssetAttribute), false);
+                    if (attributes.Length == 0) continue;
+                    var attribute = (TableAssetAttribute)attributes[0];
+                    var info = new TableAssetInfo()
+                    {
+                        AssetType = type,
+                        Attribute = attribute
+                    };
+                    list.Add(info);
+                }
             }
         }
         return list;
@@ -180,7 +197,7 @@ public class TableImporter : AssetPostprocessor
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
             var asmName = assembly.GetName();
-            if (asmName.Name == "ConfigTableAssembly")
+            if (string.IsNullOrEmpty(Config.TableAssemblyName) || asmName.Name == Config.TableAssemblyName)
             {
                 foreach (var type in assembly.GetTypes())
                 {

@@ -1,0 +1,38 @@
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+[Serializable]
+[TableEntity(FieldNames = new string[] { #FIELDNAMES# }, FieldTypes = new string[] { #FIELDTYPES# })]
+public class #ENTITYNAME#
+{
+#FIELDS#
+#ENUMDEF#
+}
+
+[TableAsset(AssetPath = Config.TableScriptablePath, ExcelName = "#EXCELNAME#", LogOnImport = Config.LogOnImport)]
+public class #ASSETSCRIPTNAME# : ScriptableObject
+{
+	List<#ENTITYNAME#> _entitise = new List<#ENTITYNAME#>();
+
+    public #ENTITYNAME# this[int index] 
+	{
+		get 
+		{
+			if (0 <= index && index <= _entitise.Count)
+            {
+                return _entitise[index];
+            }
+            return null;
+		}
+	}
+
+	public int Count
+    {
+        get
+        {
+            return _entitise.Count;
+        }
+    }
+}
