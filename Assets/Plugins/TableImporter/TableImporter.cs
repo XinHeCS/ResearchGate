@@ -4,11 +4,11 @@ using UnityEngine;
 using UnityEditor;
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using NPOI.HSSF.UserModel;
 using NPOI.XSSF.UserModel;
 using NPOI.SS.UserModel;
-using System.Text;
 using UnityEditor.Compilation;
 
 public class TableImporter : AssetPostprocessor
@@ -39,8 +39,14 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    static List<TableAssetInfo> cachedInfos = null;
-    static List<TableEntityInfo> cachedEntityInfo = null; //  Clear on compile.
+    static List<TableAssetInfo> cachedAssetInfos = null;
+    static List<TableEntityInfo> cachedEntityInfos = null; //  Clear on compile.
+
+    // Register compile event
+    static TableImporter()
+    {
+        CompilationPipeline.assemblyCompilationFinished += OnScriptsFinishCompiled;
+    }
 
     //void OnPreprocessAsset()
     //{
@@ -92,20 +98,10 @@ public class TableImporter : AssetPostprocessor
                 var excelName = Path.GetFileNameWithoutExtension(path);
                 if (excelName.StartsWith("~$")) continue;
 
-                var entityInfo = CompileTable(path);
-                if (entityInfo == null)
+                if (!CompileTable(path))
                 {
                     continue;
                 }
-
-                CompilationPipeline.assemblyCompilationFinished += OnScriptsFinishCompiled;
-
-                if (cachedInfos == null) cachedInfos = FindTableAssetInfos();
-                TableAssetInfo info = cachedInfos.Find(i => i.TableName == excelName);
-
-                if (info == null) continue;
-
-                //ImportExcel(path, info);
                 imported = true;
             }
         }
@@ -119,7 +115,41 @@ public class TableImporter : AssetPostprocessor
 
     static void OnScriptsFinishCompiled(string assemblyPath, CompilerMessage[] msg)
     {
-        Debug.Log(assemblyPath);
+        foreach (var ms in msg)
+        {
+            if (ms.type == CompilerMessageType.Error)
+            {
+                return;
+            }
+        }
+        FlushTableAttrInfo();
+    }
+
+    static void GetTableAttrInfo(System.Reflection.Assembly assembly)
+    {
+        foreach (var type in assembly.GetTypes())
+        {
+            var entityAttrs = type.GetCustomAttributes<TableEntityAttribute>(false);
+            foreach (var attr in entityAttrs)
+            {
+                var entityInfo = new TableEntityInfo
+                {
+                    EntityType = type,
+                    Attribute = attr
+                };
+                cachedEntityInfos.Add(entityInfo);
+            }
+            var assetAttrs = type.GetCustomAttributes<TableAssetAttribute>(false);
+            foreach (var attr in assetAttrs)
+            {
+                var assetInfo = new TableAssetInfo
+                {
+                    AssetType = type,
+                    Attribute = attr
+                };
+                cachedAssetInfos.Add(assetInfo);
+            }
+        }
     }
 
     static void HandleDeletedFile(string[] deletedAssets)
@@ -138,15 +168,15 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    static TableEntityInfo CompileTable(string path)
+    static bool CompileTable(string path)
     {
         var excelName = Path.GetFileNameWithoutExtension(path);
 
-        if (cachedEntityInfo == null)
+        if (cachedEntityInfos == null)
         {
-            cachedEntityInfo = FindTableEntityInfo();
+            FlushTableAttrInfo();
         }
-        var entityInfo = cachedEntityInfo.Find(
+        var entityInfo = cachedEntityInfos.Find(
             i => i.EntityName.Equals(Config.EntityPrefix + excelName)
             );
         TableCompiler compiler = new TableCompiler(path);
@@ -159,63 +189,29 @@ public class TableImporter : AssetPostprocessor
                 {
                     Debug.LogError(msg);
                 }
-                return null;
+                return false;
             }
             Debug.Log(string.Format("Cmopiled table {0}", excelName));
         }
-        return entityInfo;
+        return true;
     }
 
-    static List<TableAssetInfo> FindTableAssetInfos()
+    /// <summary>
+    /// This fucntion will be called the first time tables are imported
+    /// </summary>
+    static void FlushTableAttrInfo()
     {
-        var list = new List<TableAssetInfo>();
+        // Clear dirty cache
+        cachedEntityInfos = new List<TableEntityInfo>();
+        cachedAssetInfos = new List<TableAssetInfo>();
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
             var asmName = assembly.GetName();
             if (string.IsNullOrEmpty(Config.TableAssemblyName) || asmName.Name == Config.TableAssemblyName)
             {
-                foreach (var type in assembly.GetTypes())
-                {
-                    var attributes = type.GetCustomAttributes(typeof(TableAssetAttribute), false);
-                    if (attributes.Length == 0) continue;
-                    var attribute = (TableAssetAttribute)attributes[0];
-                    var info = new TableAssetInfo()
-                    {
-                        AssetType = type,
-                        Attribute = attribute
-                    };
-                    list.Add(info);
-                }
+                GetTableAttrInfo(assembly);
             }
         }
-        return list;
-    }
-
-    static List<TableEntityInfo> FindTableEntityInfo()
-    {
-        var list = new List<TableEntityInfo>();
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var asmName = assembly.GetName();
-            if (string.IsNullOrEmpty(Config.TableAssemblyName) || asmName.Name == Config.TableAssemblyName)
-            {
-                foreach (var type in assembly.GetTypes())
-                {
-                    var attributes = type.GetCustomAttributes<TableEntityAttribute>(false);
-                    foreach (var attr in attributes)
-                    {
-                        var entityInfo = new TableEntityInfo
-                        {
-                            EntityType = type,
-                            Attribute = attr
-                        };
-                        list.Add(entityInfo);
-                    }
-                }
-            }
-        }
-
-        return list;
     }
 
     static UnityEngine.Object LoadOrCreateAsset(string assetPath, Type assetType)

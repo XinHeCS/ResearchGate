@@ -1,3 +1,6 @@
+// ======================================================
+//		Auto-generated code, don't modify it!
+// ======================================================
 using System;
 using System.Collections;
 using System.Collections.Generic;
