@@ -144,7 +144,7 @@ public class TableImporter : AssetPostprocessor
         LoadTableData(assetInfo);
     }
 
-    static void GetTableAttrInfo(System.Reflection.Assembly assembly)
+    static void GetTableAttrInfo(Assembly assembly)
     {
         foreach (var type in assembly.GetTypes())
         {
