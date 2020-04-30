@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
+using UnityEditor.Compilation;
 using System;
 using System.IO;
 using System.Reflection;
@@ -38,10 +39,14 @@ public class TableImporter : AssetPostprocessor
     static List<TableAssetInfo> cachedAssetInfos = null;
     static List<TableEntityInfo> cachedEntityInfos = null; //  Clear on compile.
 
-    // Register compile event
     static TableImporter()
     {
-        AssemblyReloadEvents.afterAssemblyReload += OnScriptsFinishCompiled;
+        // Register re-compile event for importer since Unity will reload all 
+        // assemblise after compiling.
+        // To prevent the clear event behaviour, we need to regidter finish compiling event
+        // every time the impoter is re-loaded.
+        CompilationPipeline.assemblyCompilationFinished += OnScriptsFinishCompiled;
+        AssemblyReloadEvents.afterAssemblyReload += OnAssemblyLoad;
     }
 
     //void OnPreprocessAsset()
@@ -88,7 +93,7 @@ public class TableImporter : AssetPostprocessor
     {
         bool imported = false;
         bool hasDoneCompile = false;
-        List<string> compiledFileList = new List<string>();
+
         foreach (string path in importedAssets)
         {
             if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
@@ -109,21 +114,40 @@ public class TableImporter : AssetPostprocessor
             if (!hasDoneCompile)
             {
                 // No file has been re-compiled in this import process
-                // Just read all table data. Otherwise we need to remain this work
-                // after the re-compiling process finished.
+                // Just read all table data. 
                 UpdateCompiledTable();
             }
+
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
         }
     }
 
-    static void OnScriptsFinishCompiled()
+    static void OnScriptsFinishCompiled(string path, CompilerMessage[] messages)
     {
-        // After compile process, we need to flush the cached data
-        FlushTableAttrInfo();
-        // Reload all data after table assembly reloaded
-        UpdateCompiledTable();
+        var asmName = string.IsNullOrEmpty(Config.TableAssemblyName) ?
+            Config.DefaultAssembly : Config.TableAssemblyName;
+        if (asmName == Path.GetFileNameWithoutExtension(path))
+        {
+            Directory.SetLastWriteTime(Config.TableScriptablePath, DateTime.Now);
+        }
+    }
+
+    static void OnAssemblyLoad()
+    {
+        if (Directory.GetCreationTime(Config.TableScriptablePath) != 
+            Directory.GetLastWriteTime(Config.TableScriptablePath))
+        {
+            // After compile process, we need to flush the cached data
+            FlushTableAttrInfo();
+            // Reload all data after table assembly reloaded
+            UpdateCompiledTable();
+            // Update time
+            Directory.SetCreationTime(
+                Config.TableScriptablePath,
+                Directory.GetLastWriteTime(Config.TableScriptablePath)
+                );
+        }
     }
 
     /// <summary>
@@ -144,7 +168,7 @@ public class TableImporter : AssetPostprocessor
         LoadTableData(assetInfo);
     }
 
-    static void GetTableAttrInfo(Assembly assembly)
+    static void GetTableAttrInfo(System.Reflection.Assembly assembly)
     {
         foreach (var type in assembly.GetTypes())
         {
@@ -212,6 +236,9 @@ public class TableImporter : AssetPostprocessor
                 return false;
             }
             Debug.Log(string.Format("Cmopiled table {0}", excelName));
+            Directory.SetCreationTime(
+                Config.TableScriptablePath, 
+                Directory.GetLastWriteTime(Config.TableScriptablePath));
             hasDoneCompile = true;
         }
         return true;
@@ -220,18 +247,26 @@ public class TableImporter : AssetPostprocessor
     /// <summary>
     /// This fucntion will be called the first time tables are imported
     /// </summary>
-    static void FlushTableAttrInfo()
+    static void FlushTableAttrInfo(System.Reflection.Assembly assembly = null)
     {
         // Clear dirty cache
         cachedEntityInfos = new List<TableEntityInfo>();
         cachedAssetInfos = new List<TableAssetInfo>();
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        if (assembly == null)
         {
-            var asmName = assembly.GetName();
-            if (string.IsNullOrEmpty(Config.TableAssemblyName) || asmName.Name == Config.TableAssemblyName)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
-                GetTableAttrInfo(assembly);
+                var tableAsm = string.IsNullOrEmpty(Config.TableAssemblyName) ? 
+                    Config.DefaultAssembly : Config.TableAssemblyName;
+                if (asm.GetName().Name == tableAsm)
+                {
+                    GetTableAttrInfo(asm);
+                }
             }
+        }
+        else
+        {
+            GetTableAttrInfo(assembly);
         }
     }
 

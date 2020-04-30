@@ -15,6 +15,6 @@ public class BaseStatus
 
     public override string ToString()
     {
-        return _acl.ToString() + " " +  _egl + " " + _scl;
+        return string.Format("Academic: {0}, Engineer : {1}, Social : {2}", _acl, _egl, _scl);
     }
 }

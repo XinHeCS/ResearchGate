@@ -18,7 +18,7 @@ MonoBehaviour:
     price: 1.2
     isTest: 0
     factor: 2.76
-    color: 1
+    color: 0
   - id: 2
     name: apple
     price: 3.4

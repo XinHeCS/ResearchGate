@@ -19,6 +19,7 @@ public class Config
     public const string ScriptablePrefix = "Scriptable_";
 
     // Reference config table objects assembly name
+    public const string DefaultAssembly = "Assembly-CSharp";
     public const string TableAssemblyName = "ConfigTableAssembly";
 
     // Flag to trigger log on import

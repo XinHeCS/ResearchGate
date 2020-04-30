@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [Serializable]
-[TableEntity(FieldNames = new string[] { "id", "name", "price", "isTest", "factor", "color" }, FieldTypes = new string[] { "int", "string", "float", "bool", "float", "enum|red,green,blue," })]
+[TableEntity(FieldNames = new string[] { "id", "name", "price", "isTest", "factor", "color" }, FieldTypes = new string[] { "int", "string", "float", "bool", "float", "enum|red,green,blue" })]
 public class Entity_Test
 {
 	public int id;
@@ -20,8 +20,7 @@ public class Entity_Test
 	public enum enum_color {
 		red,
 		green,
-		blue,
-		
+		blue
 	}
 }
 
