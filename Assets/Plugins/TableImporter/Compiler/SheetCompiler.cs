@@ -126,7 +126,7 @@ public class SheetCompiler
                 var type = defInfo[0];
                 if (!TableDataType.HasType(type))
                 {
-                    StopCompile(string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unsuportted type {3}",
+                    StopCompile(string.Format("Error in compiling sheet {0} ( {1} : {2} ): Unsupported type {3}",
                         _sheet.SheetName, cell.RowIndex, i, type));
                     return;
                 }
@@ -172,9 +172,9 @@ public class SheetCompiler
         sb.Replace(TemplateSymbol.k_ENUMDEF, GetEnumScript().ToString());
 
         // Fill table content in template
-        var excelName = _tableCompiler.EntityName.Replace(Config.EntityPrefix, "");
+        var excelPath = _tableCompiler.FilePath;
         var assetName = _tableCompiler.EntityName.Replace(Config.EntityPrefix, Config.ScriptablePrefix);
-        sb.Replace(TemplateSymbol.k_EXCELNAME, excelName);
+        sb.Replace(TemplateSymbol.k_EXCELPATH, excelPath);
         sb.Replace(TemplateSymbol.k_ASSETSCRIPTNAME, assetName);
 
         // Write to disk

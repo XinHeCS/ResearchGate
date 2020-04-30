@@ -12,7 +12,7 @@ public class TemplateSymbol
     public const string k_ENUMDEF = "#ENUMDEF#";
 
     // Placeholder in scriptable template
-    public const string k_EXCELNAME = "#EXCELNAME#";
+    public const string k_EXCELPATH = "#EXCELNAME#";
     public const string k_ASSETSCRIPTNAME = "#ASSETSCRIPTNAME#";
     public const string k_ENTITYTYPENAME = "#ENTITYTYPENAME#";
 }

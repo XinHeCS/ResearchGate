@@ -9,10 +9,19 @@ using System.Linq;
 public class TableCompiler
 {
     private IWorkbook _workbook;
+    private string _filePath;
     private List<string> _fieldNames;
     private List<string> _fieldTypes;
     // Flag to indicate whether the compile process success
     private bool _isSucess = true;
+
+    public string FilePath
+    {
+        get
+        {
+            return _filePath;
+        }
+    }
 
     public List<string> ErrorMessage { get; }
 
@@ -53,13 +62,15 @@ public class TableCompiler
     public TableCompiler(string path)
     {
         LoadWorkBook(path);
+        _filePath = path;
         EntityName = Config.EntityPrefix + Path.GetFileNameWithoutExtension(path);
         ErrorMessage = new List<string>();
     }
 
-    public TableCompiler(IWorkbook table, string tableName)
+    public TableCompiler(IWorkbook table, string path, string tableName)
     {
         _workbook = table;
+        _filePath = path;
         EntityName = Config.EntityPrefix + Path.GetFileNameWithoutExtension(tableName);
         ErrorMessage = new List<string>();
     }
@@ -82,7 +93,11 @@ public class TableCompiler
         
         SheetCompiler sheetCompiler = new SheetCompiler(_workbook.GetSheetAt(0), this);
         sheetCompiler.ParseSheet();
-        RecordCompileResult(sheetCompiler);
+        RecordCompileResult(sheetCompiler, true);
+        if (!_isSucess)
+        {
+            return true;
+        }
         return !_fieldNames.SequenceEqual(entityInfo.Attribute.FieldNames) ||
             !_fieldTypes.SequenceEqual(entityInfo.Attribute.FieldTypes);
     }
@@ -104,10 +119,10 @@ public class TableCompiler
         RecordCompileResult(sheetCompiler);
     }
 
-    private void RecordCompileResult(SheetCompiler sheetCompiler)
+    private void RecordCompileResult(SheetCompiler sheetCompiler, bool isSilenceMode = false)
     {
         _isSucess &= sheetCompiler.CompileSuccess;
-        if (!_isSucess)
+        if (!_isSucess && !isSilenceMode)
         {
             ErrorMessage.Add(sheetCompiler.ErrorMessage);
         }

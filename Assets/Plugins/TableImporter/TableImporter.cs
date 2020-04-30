@@ -4,12 +4,8 @@ using UnityEngine;
 using UnityEditor;
 using System;
 using System.IO;
-using System.Linq;
 using System.Reflection;
-using NPOI.HSSF.UserModel;
-using NPOI.XSSF.UserModel;
 using NPOI.SS.UserModel;
-using UnityEditor.Compilation;
 
 public class TableImporter : AssetPostprocessor
 {
@@ -21,7 +17,7 @@ public class TableImporter : AssetPostprocessor
         {
             get
             {
-                return string.IsNullOrEmpty(Attribute.ExcelName) ? AssetType.Name : Attribute.ExcelName;
+                return string.IsNullOrEmpty(Attribute.ExcelPath) ? AssetType.Name : Attribute.ExcelPath;
             }
         }
     }
@@ -45,7 +41,7 @@ public class TableImporter : AssetPostprocessor
     // Register compile event
     static TableImporter()
     {
-        CompilationPipeline.assemblyCompilationFinished += OnScriptsFinishCompiled;
+        AssemblyReloadEvents.afterAssemblyReload += OnScriptsFinishCompiled;
     }
 
     //void OnPreprocessAsset()
@@ -91,6 +87,8 @@ public class TableImporter : AssetPostprocessor
     static void HandleImportFile(string[] importedAssets)
     {
         bool imported = false;
+        bool hasDoneCompile = false;
+        List<string> compiledFileList = new List<string>();
         foreach (string path in importedAssets)
         {
             if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
@@ -98,7 +96,7 @@ public class TableImporter : AssetPostprocessor
                 var excelName = Path.GetFileNameWithoutExtension(path);
                 if (excelName.StartsWith("~$")) continue;
 
-                if (!CompileTable(path))
+                if (!CompileTable(path, out hasDoneCompile))
                 {
                     continue;
                 }
@@ -108,21 +106,42 @@ public class TableImporter : AssetPostprocessor
 
         if (imported)
         {
+            if (!hasDoneCompile)
+            {
+                // No file has been re-compiled in this import process
+                // Just read all table data. Otherwise we need to remain this work
+                // after the re-compiling process finished.
+                UpdateCompiledTable();
+            }
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
         }
     }
 
-    static void OnScriptsFinishCompiled(string assemblyPath, CompilerMessage[] msg)
+    static void OnScriptsFinishCompiled()
     {
-        foreach (var ms in msg)
-        {
-            if (ms.type == CompilerMessageType.Error)
-            {
-                return;
-            }
-        }
+        // After compile process, we need to flush the cached data
         FlushTableAttrInfo();
+        // Reload all data after table assembly reloaded
+        UpdateCompiledTable();
+    }
+
+    /// <summary>
+    /// Reload all re-compiled table data
+    /// </summary>
+    static void UpdateCompiledTable()
+    {
+        foreach (var assetInfo in cachedAssetInfos)
+        {
+            LoadTableData(assetInfo);
+        }
+    }
+
+    static void UpdateTableData(string path)
+    {
+        var excelName = Path.GetFileNameWithoutExtension(path);
+        var assetInfo = cachedAssetInfos.Find(i => i.TableName == excelName);
+        LoadTableData(assetInfo);
     }
 
     static void GetTableAttrInfo(System.Reflection.Assembly assembly)
@@ -168,8 +187,9 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    static bool CompileTable(string path)
+    static bool CompileTable(string path, out bool hasDoneCompile)
     {
+        hasDoneCompile = false;
         var excelName = Path.GetFileNameWithoutExtension(path);
 
         if (cachedEntityInfos == null)
@@ -192,6 +212,7 @@ public class TableImporter : AssetPostprocessor
                 return false;
             }
             Debug.Log(string.Format("Cmopiled table {0}", excelName));
+            hasDoneCompile = true;
         }
         return true;
     }
@@ -234,8 +255,7 @@ public class TableImporter : AssetPostprocessor
     {
         using (FileStream stream = File.Open(excelPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
-            if (Path.GetExtension(excelPath) == ".xls") return new HSSFWorkbook(stream);
-            else return new XSSFWorkbook(stream);
+            return WorkbookFactory.Create(stream);
         }
     }
 
@@ -260,7 +280,7 @@ public class TableImporter : AssetPostprocessor
         switch (type)
         {
             case CellType.String:
-                if (fieldInfo.FieldType.IsEnum) return Enum.Parse(fieldInfo.FieldType, cell.StringCellValue);
+                if (fieldInfo.FieldType.IsEnum) return Enum.Parse(fieldInfo.FieldType, cell.StringCellValue.ToLower());
                 else return cell.StringCellValue;
             case CellType.Boolean:
                 return cell.BooleanCellValue;
@@ -289,7 +309,6 @@ public class TableImporter : AssetPostprocessor
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
             );
             if (entityField == null) continue;
-            if (!entityField.IsPublic && entityField.GetCustomAttributes(typeof(SerializeField), false).Length == 0) continue;
 
             ICell cell = row.GetCell(i);
             if (cell == null) continue;
@@ -315,8 +334,8 @@ public class TableImporter : AssetPostprocessor
         MethodInfo listAddMethod = listType.GetMethod("Add", new Type[] { entityType });
         object list = Activator.CreateInstance(listType);
 
-        // row of index 0 is header
-        for (int i = 1; i <= sheet.LastRowNum; i++)
+        // row of index 0 is header and 1 is type definition
+        for (int i = 2; i <= sheet.LastRowNum; i++)
         {
             IRow row = sheet.GetRow(i);
             if (row == null) break;
@@ -333,31 +352,22 @@ public class TableImporter : AssetPostprocessor
         return list;
     }
 
-    static void ImportExcel(string excelPath, TableAssetInfo info)
+    static void LoadTableData(TableAssetInfo info)
     {
         string assetPath = "";
         string assetName = info.AssetType.Name + ".asset";
 
-        if (string.IsNullOrEmpty(info.Attribute.AssetPath))
-        {
-            string basePath = Path.GetDirectoryName(excelPath);
-            assetPath = Path.Combine(basePath, assetName);
-        }
-        else
-        {
-            var path = Path.Combine("Assets", info.Attribute.AssetPath);
-            assetPath = Path.Combine(path, assetName);
-        }
+        assetPath = Path.Combine(info.Attribute.AssetPath, assetName);
+        
         UnityEngine.Object asset = LoadOrCreateAsset(assetPath, info.AssetType);
 
-        IWorkbook book = LoadBook(excelPath);
-
-        var assetFields = info.AssetType.GetFields();
+        var assetFields = info.AssetType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
         int sheetCount = 0;
 
+        IWorkbook book = LoadBook(info.Attribute.ExcelPath);
         foreach (var assetField in assetFields)
         {
-            ISheet sheet = book.GetSheet(assetField.Name);
+            ISheet sheet = book.GetSheetAt(sheetCount);
             if (sheet == null) continue;
 
             Type fieldType = assetField.FieldType;
@@ -373,7 +383,7 @@ public class TableImporter : AssetPostprocessor
 
         if (info.Attribute.LogOnImport)
         {
-            Debug.Log(string.Format("Imported {0} sheets form {1}.", sheetCount, excelPath));
+            Debug.Log(string.Format("Imported {0} sheets form {1}.", sheetCount, info.Attribute.ExcelPath));
         }
 
         EditorUtility.SetDirty(asset);
