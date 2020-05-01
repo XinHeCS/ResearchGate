@@ -115,9 +115,8 @@ public class TableImporter : AssetPostprocessor
             {
                 // No file has been re-compiled in this import process
                 // Just read all table data. 
-                UpdateCompiledTable();
+                UpdateImportedTable(importedAssets);
             }
-
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
         }
@@ -135,18 +134,25 @@ public class TableImporter : AssetPostprocessor
 
     static void OnAssemblyLoad()
     {
-        if (Directory.GetCreationTime(Config.TableScriptablePath) != 
-            Directory.GetLastWriteTime(Config.TableScriptablePath))
+        if (Directory.Exists(Config.TableScriptablePath))
         {
             // After compile process, we need to flush the cached data
             FlushTableAttrInfo();
-            // Reload all data after table assembly reloaded
-            UpdateCompiledTable();
-            // Update time
-            Directory.SetCreationTime(
-                Config.TableScriptablePath,
-                Directory.GetLastWriteTime(Config.TableScriptablePath)
-                );
+
+            var assets = Directory.GetFiles(Config.TableScriptablePath, string.Format("{0}*.cs", Config.ScriptablePrefix));
+            foreach (var asset in assets)
+            {
+                if (Directory.GetCreationTime(asset) !=
+                    Directory.GetLastWriteTime(asset))
+                {
+                    var assetInfo = cachedAssetInfos.Find(i => i.AssetType.Name == Path.GetFileNameWithoutExtension(asset));
+                    if (assetInfo != null)
+                    {
+                        LoadTableData(assetInfo);
+                        Directory.SetCreationTime(asset, Directory.GetLastWriteTime(asset));
+                    }
+                }
+            }
         }
     }
 
@@ -161,11 +167,20 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    static void UpdateTableData(string path)
+    /// <summary>
+    /// Reload the imported table data
+    /// </summary>
+    /// <param name="excelPath">Imported files list</param>
+    static void UpdateImportedTable(string[] excelPath)
     {
-        var excelName = Path.GetFileNameWithoutExtension(path);
-        var assetInfo = cachedAssetInfos.Find(i => i.TableName == excelName);
-        LoadTableData(assetInfo);
+        foreach (var path in excelPath)
+        {
+            var assetInfo = cachedAssetInfos.Find(i => i.Attribute.ExcelPath == path);
+            if (assetInfo != null)
+            {
+                LoadTableData(assetInfo);
+            }
+        }
     }
 
     static void GetTableAttrInfo(System.Reflection.Assembly assembly)
@@ -202,11 +217,19 @@ public class TableImporter : AssetPostprocessor
             if (Path.GetExtension(path) == ".xls" || Path.GetExtension(path) == ".xlsx")
             {
                 var excelName = Path.GetFileNameWithoutExtension(path);
+                FileUtil.DeleteFileOrDirectory(path + ".meta");
                 if (excelName.StartsWith("~$"))
                 {
-                    FileUtil.DeleteFileOrDirectory(path + ".meta");
-                    AssetDatabase.Refresh();
+                    continue;
                 }
+                var assetPath =
+                    Path.Combine(Config.TableDataPath, string.Format("{0}{1}.asset", Config.ScriptablePrefix, excelName));
+                FileUtil.DeleteFileOrDirectory(assetPath);
+                FileUtil.DeleteFileOrDirectory(assetPath + ".meta");
+                var scriptablePath =
+                    Path.Combine(Config.TableScriptablePath, string.Format("{0}{1}.cs", Config.ScriptablePrefix, excelName));
+                FileUtil.DeleteFileOrDirectory(scriptablePath);
+                FileUtil.DeleteFileOrDirectory(assetPath + ".meta");
             }
         }
     }
@@ -236,9 +259,6 @@ public class TableImporter : AssetPostprocessor
                 return false;
             }
             Debug.Log(string.Format("Cmopiled table {0}", excelName));
-            //Directory.SetCreationTime(
-            //    Config.TableScriptablePath, 
-            //    Directory.GetLastWriteTime(Config.TableScriptablePath));
             hasDoneCompile = true;
         }
         return true;
@@ -361,13 +381,9 @@ public class TableImporter : AssetPostprocessor
         return entity;
     }
 
-    static object GetEntityListFromSheet(ISheet sheet, Type entityType)
+    static void GetEntityListFromSheet(ISheet sheet, Type entityType, object list, MethodInfo addMethod)
     {
         List<string> excelColumnNames = GetFieldNamesFromSheetHeader(sheet);
-
-        Type listType = typeof(List<>).MakeGenericType(entityType);
-        MethodInfo listAddMethod = listType.GetMethod("Add", new Type[] { entityType });
-        object list = Activator.CreateInstance(listType);
 
         // row of index 0 is header and 1 is type definition
         for (int i = 2; i <= sheet.LastRowNum; i++)
@@ -382,9 +398,8 @@ public class TableImporter : AssetPostprocessor
             if (entryCell.CellType == CellType.String && entryCell.StringCellValue.StartsWith("#")) continue;
 
             var entity = CreateEntityFromRow(row, excelColumnNames, entityType, sheet.SheetName);
-            listAddMethod.Invoke(list, new object[] { entity });
+            addMethod.Invoke(list, new object[] { entity });
         }
-        return list;
     }
 
     static void LoadTableData(TableAssetInfo info)
@@ -397,28 +412,30 @@ public class TableImporter : AssetPostprocessor
         UnityEngine.Object asset = LoadOrCreateAsset(assetPath, info.AssetType);
 
         var assetFields = info.AssetType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
-        int sheetCount = 0;
 
         IWorkbook book = LoadBook(info.Attribute.ExcelPath);
-        foreach (var assetField in assetFields)
+
+        // Get filed and type infomation
+        Type fieldType = assetFields[0].FieldType;
+        if (!fieldType.IsGenericType || (fieldType.GetGenericTypeDefinition() != typeof(List<>))) return;
+        Type entityType = fieldType.GetGenericArguments()[0];
+        Type listType = typeof(List<>).MakeGenericType(entityType);
+        MethodInfo listAddMethod = listType.GetMethod("Add", new Type[] { entityType });
+
+        // Read data from table
+        object list = Activator.CreateInstance(listType);
+        for (int i = 0; i < book.NumberOfSheets; ++i)
         {
-            ISheet sheet = book.GetSheetAt(sheetCount);
+            ISheet sheet = book.GetSheetAt(i);
             if (sheet == null) continue;
 
-            Type fieldType = assetField.FieldType;
-            if (!fieldType.IsGenericType || (fieldType.GetGenericTypeDefinition() != typeof(List<>))) continue;
-
-            Type[] types = fieldType.GetGenericArguments();
-            Type entityType = types[0];
-
-            object entities = GetEntityListFromSheet(sheet, entityType);
-            assetField.SetValue(asset, entities);
-            sheetCount++;
+            GetEntityListFromSheet(sheet, entityType, list, listAddMethod);
         }
+        assetFields[0].SetValue(asset, list);
 
         if (info.Attribute.LogOnImport)
         {
-            Debug.Log(string.Format("Imported {0} sheets form {1}.", sheetCount, info.Attribute.ExcelPath));
+            Debug.Log(string.Format("Imported {0} sheets form {1}.", book.NumberOfSheets, info.Attribute.ExcelPath));
         }
 
         EditorUtility.SetDirty(asset);

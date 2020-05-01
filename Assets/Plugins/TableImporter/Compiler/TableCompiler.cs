@@ -1,8 +1,10 @@
 ﻿using NPOI.SS.UserModel;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using UnityEngine;
 
 /// <summary>
 /// Class to convert config table to scriptableobject
@@ -178,6 +180,7 @@ public class TableCompiler
             assetName + ".cs"
             );
         File.WriteAllText(path, sb.ToString());
+        Directory.SetLastWriteTime(path, DateTime.Now);
     }
 
     private StringBuilder GetFieldNameInAttr()

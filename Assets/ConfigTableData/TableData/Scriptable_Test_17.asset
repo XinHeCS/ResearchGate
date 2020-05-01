@@ -9,8 +9,8 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 17e52c25933abcf488b8072e792589fc, type: 3}
-  m_Name: Scriptable_Test
+  m_Script: {fileID: 11500000, guid: bd50a795628d3e845ae6dd726dac280e, type: 3}
+  m_Name: Scriptable_Test_17
   m_EditorClassIdentifier: 
   _entitise:
   - id: 1
