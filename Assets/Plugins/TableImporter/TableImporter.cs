@@ -45,7 +45,7 @@ public class TableImporter : AssetPostprocessor
         // assemblise after compiling.
         // To prevent the clear event behaviour, we need to regidter finish compiling event
         // every time the impoter is re-loaded.
-        CompilationPipeline.assemblyCompilationFinished += OnScriptsFinishCompiled;
+        //CompilationPipeline.assemblyCompilationFinished += OnScriptsFinishCompiled;
         AssemblyReloadEvents.afterAssemblyReload += OnAssemblyLoad;
     }
 
@@ -123,15 +123,15 @@ public class TableImporter : AssetPostprocessor
         }
     }
 
-    static void OnScriptsFinishCompiled(string path, CompilerMessage[] messages)
-    {
-        var asmName = string.IsNullOrEmpty(Config.TableAssemblyName) ?
-            Config.DefaultAssembly : Config.TableAssemblyName;
-        if (asmName == Path.GetFileNameWithoutExtension(path))
-        {
-            Directory.SetLastWriteTime(Config.TableScriptablePath, DateTime.Now);
-        }
-    }
+    //static void OnScriptsFinishCompiled(string path, CompilerMessage[] messages)
+    //{
+    //    var asmName = string.IsNullOrEmpty(Config.TableAssemblyName) ?
+    //        Config.DefaultAssembly : Config.TableAssemblyName;
+    //    if (asmName == Path.GetFileNameWithoutExtension(path))
+    //    {
+    //        Directory.SetLastWriteTime(Config.TableScriptablePath, DateTime.Now);
+    //    }
+    //}
 
     static void OnAssemblyLoad()
     {
@@ -236,9 +236,9 @@ public class TableImporter : AssetPostprocessor
                 return false;
             }
             Debug.Log(string.Format("Cmopiled table {0}", excelName));
-            Directory.SetCreationTime(
-                Config.TableScriptablePath, 
-                Directory.GetLastWriteTime(Config.TableScriptablePath));
+            //Directory.SetCreationTime(
+            //    Config.TableScriptablePath, 
+            //    Directory.GetLastWriteTime(Config.TableScriptablePath));
             hasDoneCompile = true;
         }
         return true;
